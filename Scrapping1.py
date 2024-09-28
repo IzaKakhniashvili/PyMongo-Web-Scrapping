@@ -1,63 +1,95 @@
-import requests
+import aiohttp
+import asyncio
 from bs4 import BeautifulSoup
+from mongo_data import (get_mongo_client, insert_data, close_client,
+                        get_most_recipes_author, get_most_portions_recipe)
 
 
-url = "https://kulinaria.ge/receptebi/cat/xorceuli/"
-response = requests.get(url)
+base_url = 'https://kulinaria.ge'
+url = 'https://kulinaria.ge/receptebi/cat/xorceuli/'
 
-soup = BeautifulSoup(response.content, "lxml")
+async def fetch_html(session, url):
+    async with session.get(url, ssl=False) as response:
+        return await response.text()
 
-base_url = "https://kulinaria.ge"
+
+async def get_recipe_urls(session):
+    html = await fetch_html(session, url)
+    soup = BeautifulSoup(html, 'lxml')
+
+    recipe_titles = soup.find_all('a', class_='box__title')
+    urls = [{'name': recipe.get_text(strip=True), 'url': base_url + recipe['href']} for recipe in recipe_titles]
+    return urls
 
 
-def get_categories(recipe_url):
-    new_response = requests.get(recipe_url)
-    soup = BeautifulSoup(new_response.content, 'lxml')
-    
-    categories = soup.find_all('a', class_='pagination__item')
-    
-    if len(categories) >= 2:
-        subcategory = categories[-1].get_text(strip=True)
-        category = categories[-2].get_text(strip=True)
-        sub_url = base_url + categories[-1]['href']
-        cat_url = base_url + categories[-2]['href']
+async def get_recipe_details(session, recipe_url, sem):
+    async with sem:
+        html = await fetch_html(session, recipe_url)
+        soup = BeautifulSoup(html, 'lxml')
+
+        # Fetch categories and categories' URLs
+        categories = soup.find_all('a', class_='pagination__item')
+        if len(categories) >= 2:
+            category = categories[-2].get_text(strip=True)
+            category_url = categories[-2]['href']
+            subcategory = categories[-1].get_text(strip=True)
+            subcategory_url = categories[-1]['href']
+        else:
+            category, subcategory, category_url, subcategory_url = None, None, None, None
+
+        # Fetch photo URL
+        post_image = soup.find('img', class_='post__img')
+        photo_url = base_url + post_image['src'] if post_image else None
+
+
+        return {
+            'category': category,
+            'category_url': category_url,
+            'subcategory': subcategory,
+            'subcategory_url': subcategory_url,
+            'photo_url': photo_url,
+        }
+
+
+async def scrape_recipes():
+    async with aiohttp.ClientSession() as session:
+        sem = asyncio.Semaphore(10)
+        recipe_urls = await get_recipe_urls(session)
+
+        tasks = [get_recipe_details(session, recipe['url'], sem) for recipe in recipe_urls]
+
+        recipe_details = await asyncio.gather(*tasks)
+
+        recipes = []
+        for i, details in enumerate(recipe_details):
+            recipe_info = {
+                'name': recipe_urls[i]['name'],
+                'url': recipe_urls[i]['url'],
+                **details
+            }
+            recipes.append(recipe_info)
+
+        return recipes
+
+
+async def main():
+    recipe_data = await scrape_recipes()
+    mongo_client = get_mongo_client('mongodb://localhost:27017/')
+    insert_data(mongo_client, 'recipe_data', recipe_data)
+
+    collection = mongo_client['recipe_data']['recipes']
+    author, count = get_most_recipes_author(collection)
+    if author:
+        print(f"ყველაზე მეტი რეცეპტის ავტორი: {author}, რეცეპტების რაოდენობა: {count}")
     else:
-        subcategory, category, sub_url, cat_url = None, None, None, None
-    
-    return category, subcategory, cat_url, sub_url
+        print("ავტორი არ მოიძებნა.")
+
+    recipe_name, recipe_url, portion = get_most_portions_recipe(collection)
+    if recipe_name:
+        print(f"რეცეპტის სახელი: {recipe_name}, რეცეპტის URL: {recipe_url}, პორცია: {portion}")
+
+    close_client(mongo_client)
 
 
-def get_photo_url(recipe_url):
-    new_response = requests.get(recipe_url)
-    soup = BeautifulSoup(new_response.content, 'lxml')
-    
-    post_image = soup.find('img', class_='post__image')
-    
-    if post_image:
-        photo_url = base_url + post_image['src']
-    else:
-        photo_url = None
-    
-    return photo_url
-
-info = []
-recipe_title = soup.find_all('a', class_='box__title')
-
-for rec in recipe_title:
-    recipe = {}
-    recipe_name = rec.get_text(strip=True)
-    recipe_url = base_url + rec['href']
-    
-    category, subcategory, cat_url, sub_url = get_categories(recipe_url)
-    photo_url = get_photo_url(recipe_url)
-    
-    recipe["recipe name"] = recipe_name
-    recipe["recipe url"] = recipe_url
-    recipe["category"] = category
-    recipe["subcategory"] = subcategory
-    recipe["category url"] = cat_url
-    recipe["subcategory url"] = sub_url
-    recipe["photo url"] = photo_url
-    info.append(recipe)
-
-print(info)
+if __name__ == "__main__":
+    asyncio.run(main())
