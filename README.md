@@ -33,21 +33,21 @@ The project is built using asynchronous programming with aiohttp and asyncio for
 This project was a pairing assignment with tasks divided equally between the two contributors:
 
   - Tinatin's tasks:
-        - Retrieve data from the website, including:
-                - Recipe's description
-                - Author name
-                - Cooking steps
-                - Ingredients
-                - Number of servings
+        -- Retrieve data from the website, including:
+                -- Recipe's description
+                -- Author name
+                -- Cooking steps
+                -- Ingredients
+                -- Number of servings
         - MongoDB tasks:
-                - Calculate how many ingredients a recipe needs on average
-                - Calculate how many preparation steps a recipe has on average
+                -- Calculate how many ingredients a recipe needs on average
+                -- Calculate how many preparation steps a recipe has on average
   - Iza's tasks:
         - Retrieve data from the website, including:
-                - Recipe title and URL
-                - Categories and subcategories
-                - Categories URLs and subcategories URLs
-                - Photo URL
+                -- Recipe title and URL
+                -- Categories and subcategories
+                -- Categories URLs and subcategories URLs
+                -- Photo URL
         - MongoDB tasks:
-                - Identify which recipe has the most servings and print its name and URL
-                - Print the name of the author who has the most recipes posted
+                -- Identify which recipe has the most servings and print its name and URL
+                -- Print the name of the author who has the most recipes posted
